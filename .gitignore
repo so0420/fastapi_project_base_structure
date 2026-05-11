@@ -1,0 +1,40 @@
+# env
+.env
+.env.*
+!.env.example
+
+# keys
+*.pem
+*.key
+*.crt
+secrets/
+
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+
+# Logs
+*.log
+logs/
+log/
+
+# IDE
+.idea
+
+# Utils
+activate_venv.bat
+
+# Fastapi
+instance/
+.local/
+
+# Cache file
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+*.pyd
