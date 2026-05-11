@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # Host 헤더 화이트리스트. ["*"] 는 전체 허용 (운영에서는 도메인 명시 권장).
     ALLOWED_HOSTS: list[str] = Field(default_factory=lambda: ["*"])
 
+    # X-Forwarded-* 헤더를 신뢰할 프록시 IP 목록 (uvicorn forwarded_allow_ips).
+    # 여기 등록된 IP/CIDR 에서 온 요청에만 헤더를 신뢰하여 실제 클라이언트 IP 를 인식.
+    # 같은 호스트의 nginx 라면 "127.0.0.1" 로 충분. 다른 서버의 nginx 면 그 서버 IP.
+    # "*" 는 모든 IP 신뢰 — 보안상 권장하지 않음.
+    TRUSTED_PROXIES: list[str] = Field(default_factory=lambda: ["127.0.0.1"])
+
     # 요청 바디 최대 크기 (bytes). 기본 10MB.
     MAX_REQUEST_BODY_SIZE: int = 10 * 1024 * 1024
 
@@ -87,6 +93,7 @@ class Settings(BaseSettings):
         "CORS_ALLOW_METHODS",
         "CORS_ALLOW_HEADERS",
         "ALLOWED_HOSTS",
+        "TRUSTED_PROXIES",
         mode="before",
     )
     @classmethod

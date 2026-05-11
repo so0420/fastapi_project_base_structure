@@ -70,6 +70,11 @@ async def health(db: AsyncSession = Depends(get_db)):
 if __name__ == "__main__":
     import uvicorn
 
+    # 프록시(nginx 등) 뒤에서 동작 시 X-Forwarded-For / X-Forwarded-Proto 를 신뢰하여
+    # request.client.host 를 실제 클라이언트 IP 로 설정. slowapi 의 rate limit 도
+    # 이 값을 사용하므로 IP 기반 제한이 정상 동작합니다.
+    forwarded_allow_ips = ",".join(settings.TRUSTED_PROXIES)
+
     if settings.ENVIRONMENT == "production":
         logger.info("Server starting in production...")
         uvicorn.run(
@@ -77,6 +82,8 @@ if __name__ == "__main__":
             host=settings.SERVER_HOST,
             port=settings.SERVER_PORT,
             log_config=None,
+            proxy_headers=True,
+            forwarded_allow_ips=forwarded_allow_ips,
         )
     elif settings.ENVIRONMENT == "local":
         logger.info("Server starting in local...")
@@ -86,4 +93,6 @@ if __name__ == "__main__":
             port=settings.SERVER_PORT,
             reload=True,
             log_config=None,
+            proxy_headers=True,
+            forwarded_allow_ips=forwarded_allow_ips,
         )
