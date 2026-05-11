@@ -96,6 +96,74 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# --------- JSON 구조 제한 (파싱 DoS 방어) ---------
+class JSONStructureLimitMiddleware(BaseHTTPMiddleware):
+    """
+    application/json 요청에 대해 파싱 전에 중첩 깊이/키 개수를 사전 검사.
+
+    크기는 작더라도 깊이가 수만 단계인 JSON 은 파싱/검증 시
+    재귀/메모리 폭주를 유발할 수 있어 사전에 차단합니다.
+    """
+
+    def __init__(self, app, max_depth: int, max_keys: int):
+        super().__init__(app)
+        self.max_depth = max_depth
+        self.max_keys = max_keys
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        content_type = request.headers.get("content-type", "").lower()
+        if not content_type.startswith("application/json"):
+            return await call_next(request)
+
+        body = await request.body()
+        if not body:
+            return await call_next(request)
+
+        err = self._scan(body)
+        if err is not None:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": err},
+            )
+
+        # body 를 이미 읽었으므로 다운스트림에 다시 흘려보내기 위해 receive 를 재구성
+        async def receive():
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        request._receive = receive  # type: ignore[attr-defined]
+        return await call_next(request)
+
+    def _scan(self, body: bytes) -> str | None:
+        """바이트 단위 스캔으로 depth, key 수를 측정. 한도 초과 시 사유 반환."""
+        depth = 0
+        keys = 0
+        in_string = False
+        escape = False
+        for b in body:
+            if escape:
+                escape = False
+                continue
+            if in_string:
+                if b == 0x5C:  # \
+                    escape = True
+                elif b == 0x22:  # "
+                    in_string = False
+                continue
+            if b == 0x22:  # "
+                in_string = True
+            elif b == 0x7B or b == 0x5B:  # { or [
+                depth += 1
+                if depth > self.max_depth:
+                    return f"JSON nesting depth exceeds {self.max_depth}"
+            elif b == 0x7D or b == 0x5D:  # } or ]
+                depth -= 1
+            elif b == 0x3A:  # :
+                keys += 1
+                if keys > self.max_keys:
+                    return f"JSON keys exceed {self.max_keys}"
+        return None
+
+
 # --------- 진입점 ---------
 def setup_security(app: FastAPI) -> None:
     """모든 보안 미들웨어 및 rate limiter 를 한 번에 설정."""
@@ -110,13 +178,20 @@ def setup_security(app: FastAPI) -> None:
     if settings.RATE_LIMIT_ENABLED:
         app.add_middleware(SlowAPIMiddleware)
 
-    # 2. 본문 크기 제한
+    # 2. JSON 구조 제한 (파싱 DoS 방어)
+    app.add_middleware(
+        JSONStructureLimitMiddleware,
+        max_depth=settings.MAX_JSON_DEPTH,
+        max_keys=settings.MAX_JSON_KEYS,
+    )
+
+    # 3. 본문 크기 제한
     app.add_middleware(BodySizeLimitMiddleware, max_size=settings.MAX_REQUEST_BODY_SIZE)
 
-    # 3. 보안 응답 헤더
+    # 4. 보안 응답 헤더
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # 4. CORS (origin 이 명시된 경우에만)
+    # 5. CORS (origin 이 명시된 경우에만)
     if settings.CORS_ALLOW_ORIGINS:
         app.add_middleware(
             CORSMiddleware,
@@ -126,10 +201,10 @@ def setup_security(app: FastAPI) -> None:
             allow_headers=settings.CORS_ALLOW_HEADERS,
         )
 
-    # 5. HTTPS 강제 (프로덕션 옵션)
+    # 6. HTTPS 강제 (프로덕션 옵션)
     if settings.FORCE_HTTPS:
         app.add_middleware(HTTPSRedirectMiddleware)
 
-    # 6. TrustedHost (가장 바깥: 요청 시 가장 먼저 검사)
+    # 7. TrustedHost (가장 바깥: 요청 시 가장 먼저 검사)
     if settings.ALLOWED_HOSTS and settings.ALLOWED_HOSTS != ["*"]:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)

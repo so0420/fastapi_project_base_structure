@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # 요청 바디 최대 크기 (bytes). 기본 10MB.
     MAX_REQUEST_BODY_SIZE: int = 10 * 1024 * 1024
 
+    # JSON 파싱 DoS 방어 (application/json 요청 한정)
+    MAX_JSON_DEPTH: int = 20
+    MAX_JSON_KEYS: int = 1000
+
     # Rate limit
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_DEFAULT: str = "100/minute"
